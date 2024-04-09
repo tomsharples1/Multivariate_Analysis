@@ -1,0 +1,753 @@
+---
+title: "Multivariate Analysis Coursework"
+author: "Thomas Sharples"
+date: "`r Sys.Date()`"
+output: pdf_document
+latex_engine: pdflatex
+---
+
+```{r, echo=FALSE, message=FALSE}
+un <- read.csv("~/Desktop/R/MVA /coursework/un.csv", header=TRUE)
+gdp <- un[,3:14] # The GDP per capita.
+years <- seq(1952, 2007,5) 
+colnames(gdp) <- years
+rownames(gdp) <- un[,2]
+
+lifeExp <- un[,15:26] # the life expectancy 
+colnames(lifeExp) <- years 
+rownames(lifeExp) <- un[,2]
+
+popn <- un[,27:38] # the population size 
+colnames(popn) <- years
+rownames(popn) <- un[,2]
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+
+```
+
+In this document we will be investigating United Nations data on 141 different coutries from 1952 to 2007. We will be performing analysis on the variables GDP per capita, life expectancy and population using various methods such as PCA, linear discriminant analysis, clustering and more.
+
+# Exploratory Analysis
+
+First we will take a look how each of the variables have changed from 1952 to 2007and see if we can find some common trends between them.
+
+```{r, echo=F, fig.show='asis', out.width='50%', message=FALSE}
+gdp$country <- rownames(gdp)
+gdp_long <- tidyr::pivot_longer(gdp, cols=-country, names_to="year", values_to="gdp")
+
+ggplot(gdp_long, aes(x=gdp, fill=year, color=year)) + geom_density(alpha=0.5) +
+  labs(x="GDP", 
+       title="Distribution of GDP per year") 
+
+ggplot(gdp_long, aes(x=log(gdp), fill=year, color=year)) + geom_density(alpha=0.5) +
+  labs(x="log(GDP)", 
+       title="Distribution of log GDP per year") 
+```
+
+This density plot shows us overall trend for GDP per capita over the 70 years, GDP per capita has increases every year quite uniformly with the proportion of people below \$10,000 reducing every year. The GDP data is positively skewed and may suggest that using a transformation would be beneficial. The plot on the right shows a log transformation and this transformation reduces this skewness.
+
+```{r, echo=FALSE, fig.show='asis', out.width='50%'}
+popn$country <- rownames(popn)
+pop <- tidyr::pivot_longer(popn, cols=-country, names_to = "year", values_to = "population")
+pop_log <- tidyr::pivot_longer(popn, cols=-country, names_to = "year", values_to = "population") %>% mutate_at(vars(3), log)
+
+ggplot(pop, aes(x=population, fill=year, color=year)) + geom_density(alpha=0.5) + 
+  labs(title="Distribution of population per year")
+ggplot(pop_log, aes(x=population, fill=year, color=year)) + geom_density(alpha=0.5) + 
+  labs(title="Distribution of log population per year")
+```
+
+The density plots here shows that the population data is very positively skewed and a log transformation significantly reduces this. 
+
+```{r, echo=F, fig.show = 'asis', out.width='50%', message=FALSE}
+gdp_per_conti <- un %>% group_by(continent) %>% dplyr::select(starts_with("gdpPercap")) %>% summarise_all(mean) %>% 
+  t() %>% as.data.frame() %>% slice(-1)
+colnames(gdp_per_conti) <- c("Africa", "Americas", "Asia", "Europe", "Oceania")
+gdp_per_conti$year <- years
+
+mean_gdp<- tidyr::pivot_longer(gdp_per_conti, cols = -year, names_to = "continent", values_to = "mean_gdp")
+
+lifeExp_per_conti <- un %>% group_by(continent) %>% dplyr::select(starts_with("lifeExp")) %>% 
+  summarise_all(mean) %>% t() %>% as.data.frame() %>% slice(-1)
+colnames(lifeExp_per_conti) <- c("Africa", "Americas", "Asia", "Europe", "Oceania")
+lifeExp_per_conti$year <- years
+mean_life <- tidyr::pivot_longer(lifeExp_per_conti, cols=-year, names_to="continent", values_to="mean_life")
+
+ggplot(mean_gdp, aes(x=year, y=as.numeric(mean_gdp), color=continent)) + geom_line() + geom_point() +
+  labs(y="Mean GDP per capita", x="Year", 
+       title="Mean GDP per capita over 70 years by continent")
+
+ggplot(mean_life, aes(x=year, y=as.numeric(mean_life), color=continent)) + geom_line() + geom_point() + 
+  labs(y="Mean life expectancy", 
+       title = "Mean life excpectancy over 70 years by continent")
+```
+
+```{r, echo=F, fig.align='center', out.width='50%', message=FALSE}
+popn_per_conti <- un %>% group_by(continent) %>% dplyr::select(starts_with("pop")) %>% summarise_all(mean) %>%
+  t() %>% as.data.frame() %>% slice(-1)
+colnames(popn_per_conti) <- c("Africa", "Americas", "Asia", "Europe", "Oceania")
+popn_per_conti$year <- years
+mean_pop <- tidyr::pivot_longer(popn_per_conti, cols=-year, names_to = "continent", values_to = "mean_pop")
+ggplot(mean_pop, aes(x=year, y=as.numeric(mean_pop), color=continent)) + geom_line() + geom_point() +
+  labs(y="Mean Population",
+       title = "Mean Population over 70 years by continent")
+
+```
+
+All continents follow a increasing trend from the years 1952 to 2007 where Oceania and Europe have remained to be the continents with the highest GDPs per capita. Africa's GDP per capita did increase over the 70 years but it didn't see the same augmentation as the 1st world countries like Oceania and Europe.
+
+Similarly to GDP life expectancy increases linearly for all the continents. The rate of increase in Oceania and Europe is smaller than Asia and Americas showing that life expectancy has rapidly increased for these two continents. From 1952 to 1985 Africa had a steady linear increase in life expectancy but plateaued from 1985-2000, this may have been due to the AIDs epidemic.
+
+The mean population of all the countries has increased linearly in the last 70 years where Asia has had the most rapid and drastic augmentation of them all. Oceania has had quite little growth over this time period even though it is leading for GDP per capita and life expectancy.
+
+```{r, echo=F, fig.show='asis', out.width='50%', message=FALSE}
+gdp$country <- rownames(gdp)
+gdp_long <- tidyr::pivot_longer(gdp, cols=-country, names_to="year", values_to="gdp")
+
+lifeExp$country <- rownames(lifeExp)
+life <- tidyr::pivot_longer(lifeExp, cols=-country, names_to="year", values_to="lifeExp")
+
+popn$country <- rownames(popn)
+pop <- tidyr::pivot_longer(popn, cols=-country, names_to = "year", values_to = "population")
+
+continents <- rep(un$continent, each = 12)
+overall <- cbind(continents, gdp_long, life$lifeExp, pop$population) %>% rename("life" = "life$lifeExp", "population" = "pop$population")
+
+ggplot(overall, aes(x=gdp, y=life)) + geom_point(aes(color=continents, size = population), alpha=0.6) + geom_smooth(method="loess", col="black", linewidth=0.5, alpha=0.3) +
+  labs(x="GDP per capita", y= "Life expectancy",
+       title = "Relationship between GDP per capita and Life expectancy")
+
+ggplot(overall, aes(x=log(gdp), y=life)) + geom_point(aes(color=continents, size = population), alpha=0.6) + geom_smooth(method="lm", col="black", linewidth=0.5, alpha=0.3) +
+  labs(x="log(GDP) per capita", y= "Life expectancy",
+       title = "Relationship between log(GDP) per capita and Life expectancy")
+```
+
+Plotting GDP per capita against life expectancy we can see the influence of the positive skewness in the GDP data. This suggests a non-liner relationship between GDP and life expectancy with clustering around less than \$10,000. Applying a log transformation we see that the data spreads out and we now have a linear relationship between the two variables. The transformation makes the graph significantly more interpret-able.
+
+Europe, Oceania and large populations in Americas follow this linear relationship with the smallest deviations and they are grouped around the 70-80 life expectancy range. Africa on the other hand is very spread out deviating from the fitted line the most and they also have the lowest life expediencies.
+
+# Principal Component Analysis
+
+In this section we will be running PCA on the variables GDP per capita and Life expectancy to see what conclusions we can draw from them!
+
+For this PC analysis we will be using correlation (R) because I want to focus on the relationships between variables rather than the absolute values of them, correlation is also less sensitive to skewness and from our EDA we can see that GDP is positively skewed. GDP and life expectancy use different scales so when we compare the first principal components of them we want them to be normalised.
+
+### PCA on GDP per capita
+
+```{r, echo=FALSE, message=FALSE}
+gdp <- un %>% group_by(continent) %>% dplyr::select(starts_with("gdpPercap")) %>% 
+  as.data.frame()
+colnames(gdp)[2:13] <- years
+rownames(gdp) <- un[,2]
+```
+
+```{r}
+gdp.pca <- prcomp(gdp[,2:13], scale=TRUE) # TRUE = corr
+summary(gdp.pca)
+```
+
+The summary output shows us that 97.1% of the variance is explained by the first two components suggesting that we only need to compute the first two PC scores. The components after this account for 2% or less of the variability in the data and there is no need to compute their principal component scores. A scree plot can help us visualise the summary output.
+
+```{r, echo=FALSE, message=FALSE, fig.align='center'}
+library(factoextra)
+library(ggplot2)
+gdp$PC1_gdp <- gdp.pca$x[,1]
+
+# Scree plot
+fviz_eig(gdp.pca, addlabels = TRUE, 
+         main="Scree plot for GDP per capita",
+         barfill = "royalblue3", barcolor = "royalblue3")
+```
+
+So we have successfully reduced the dimensions from p=12 down to p=2.
+
+```{r, echo=F, message=F, fig.align='center'}
+library(ggfortify)
+
+# Scatter plot PC1 vs PC2 
+autoplot(gdp.pca, data=gdp, label=TRUE, shape=FALSE, 
+         color="continent", label.size = 3,
+         main="PCA for GDP per capita")
+```
+
+We may interpret the first principal component is the measure of average wealth per country, the more positive the first PC value the more wealthy the country is, however I feel that skewness in the GDP data is influencing our plot by clustering around the origin so a log transformation may make it more readable.
+
+Applying log transformation to GDP,
+
+```{r, echo=FALSE, fig.align='center', message=FALSE}
+library(ggfortify)
+library(factoextra)
+gdp_log <- un %>% group_by(continent) %>% dplyr::select(starts_with('gdpPercap')) %>% 
+  mutate_at(vars(-1), log) %>% as.data.frame() 
+colnames(gdp_log)[2:13] <- years
+rownames(gdp_log) <- un[,2]
+
+gdp_log.pca <- prcomp(gdp_log[,2:13], scale=TRUE) # TRUE = corr
+summary(gdp_log.pca)
+```
+
+Applying the log transformation we see that the first two components now explain 98.5% of the variance which is an improvement. Plotting PC1 against PC2, 
+
+```{r, echo=FALSE, message=FALSE, fig.align='center'}
+autoplot(gdp_log.pca, gdp_log, label=TRUE, shape=FALSE,
+         color='continent', label.size = 3, 
+         main="PCA for log GDP per capita")
+```
+
+The log transformation spreads out the data and allows us to see more clusters rather than one large cluster around the origin. Now we have European and Oceanic countries are on the left with negative PC1 scores and African countries are on the right with positive PC1 values. I would interpret the first principal component as the average wealth per country the more negative the PC1 value is the higher the average wealth. We see that the log transformation creates clusters somewhat by continent but not explicitly with the more well known wealthy countries on the left and the poorer African and Asian on the right.
+
+```{r}
+gdp_log.pca$rotation[,1:2]
+```
+
+Using the eigen vectors for PC2, I interpret the second principal component as an indicator of GDP growth after 1982, if the PC2 score is large and negative then it indicates significant GDP growth and if it is positive it suggests GDP decline.
+
+```{r, echo=FALSE, fig.align='center'}
+congo <- gdp["Congo Dem. Rep.",][,2:13] %>% t()
+guin <- gdp["Equatorial Guinea",][,2:13] %>% t()
+iraq <- gdp["Iraq",][,2:13] %>% t()
+taiwan <- gdp["Taiwan",][,2:13] %>% t()
+combined <- cbind(congo, guin, iraq, taiwan)
+colnames(combined) <- c("congo", "guin", "iraq", "taiwan")
+ggplot(combined, aes(x = years)) +
+  geom_line(aes(y = congo, color = "Congo Dem. Rep.")) +
+  geom_line(aes(y = guin, color = "Equatorial Guinea")) +
+  geom_line(aes(y = iraq, color = "Iraq")) +
+  geom_line(aes(y = taiwan, color = "Taiwan")) + 
+  geom_vline(xintercept = 1982, linetype = "dashed", color="red") +
+  labs(title = "GDP growth in Congo, Guinea, Iraq and Taiwan", 
+       y = "GDP per capita")
+```
+
+Plotting the countries' GDPs with the most extreme PC2 scores we can see that the countries with negative PC2 scores Taiwan and Guinea had large GDP growth and Iraq and Congo who have positive PC2 scores had GDP decline post 1982.
+
+### PCA on Life expectancy
+
+```{r, echo=FALSE, message=FALSE}
+lifeExp <- un %>% group_by(continent) %>% dplyr::select(starts_with("life")) %>%
+  as.data.frame()
+colnames(lifeExp)[2:13] <- years
+rownames(lifeExp) <- un[,2]
+
+```
+
+```{r, echo=FALSE}
+lifeExp.pca <- prcomp(lifeExp[,2:13], scale=TRUE)
+summary(lifeExp.pca)
+
+```
+
+```{r, echo=FALSE, fig.align='center'}
+library(factoextra)
+gdp$PC1_life <- lifeExp.pca$x[,1]
+
+# Scree plot
+fviz_eig(lifeExp.pca, addlabels = TRUE, 
+         main="Scree plot for Life expectancy",
+         barfill = "seagreen3", 
+         barcolor = "seagreen3")
+```
+
+97.9% of the variance is explained in the first two components so we will only keep these two components to compute PC scores. The variance explained by the components after this is 1.3% or less and thus there is no need to continue with these components.
+
+```{r, echo=FALSE, fig.align='center'}
+library(ggfortify)
+
+# Scatter plot 
+autoplot(lifeExp.pca, lifeExp, label=TRUE, shape=FALSE,
+         color='continent', label.size = 3, 
+         main= "PCA for Life expectancy")
+```
+
+This PCA splits the life expectancy data into clusters roughly by continent. We see that African countries have negative PC1 scores and European and Oceanic countries have positive scores. I would interpret the first principal component as a measure of average life expectancy, where negative scores indicate low life expectancy and positive scores suggest high life expectancy. I interpret the second PC score as a measure for growth of life expectancy, negative scores indicate a increase in life expectancy and positive scores imply a decrease in life expectancy.
+
+```{r, echo=FALSE, fig.align='center'}
+oman <- lifeExp["Oman",][,2:13] %>% t()
+zim <- lifeExp["Zimbabwe",][,2:13] %>% t()
+double <- cbind(oman, zim)
+ggplot(double, aes(x=years)) + 
+  geom_line(aes(y=oman, color="Oman")) +
+  geom_line(aes(y=zim, color="Zimbabwe")) +
+  labs(title="Life Expectancy change in Oman and Zimbabwe", 
+       y="Life Expectancy")
+```
+
+Plotting the countries with the most extreme PC2 value we see that Oman had a significant increase in life expectancy whereas Zimbabwe's life expectancy decreased.
+
+### PC1 GDP vs PC1 Life expectancy
+
+Decided to continue with log GDP we plot the PC1 scores for GDP vs life expectancy, 
+
+```{r, echo=FALSE, fig.align='center', message=FALSE}
+gdp_log <- un %>% group_by(continent) %>% dplyr::select(starts_with('gdpPercap')) %>% 
+  mutate_at(vars(-1), log) %>% as.data.frame() 
+colnames(gdp_log)[2:13] <- years
+rownames(gdp_log) <- un[,2]
+
+gdp_log.pca <- prcomp(gdp_log[,2:13], scale=TRUE)
+gdp$PC1_gdp_log <- gdp_log.pca$x[,1]
+
+# first PC scores for log gdp and lifeExp scatter 
+ggplot(gdp, aes(x=PC1_gdp_log, y=PC1_life, col=continent, 
+                     label=rownames(gdp))) + geom_text(size=3) + 
+  labs(title="First principal components for log GDP per capita and life expectancy",
+       x= "PC1 log GDP", 
+       y= "PC1 life expectancy")
+
+# maybe keep the lines in if the analysis can reason why they should stay there
+```
+
+Earlier we interpreted the first principal components for life expectancy and GDP as an average measure of each. Plotting these against each other creates a linear relationship indicating that large positive life expectancy PC scores and large negative GDP PC score implies that the higher a country's GDP the higher the life expectancy is. The countries are clustered into continents where Europe and Oceania have the countries with the highest combined GDP and life expectancy scores whereas Africa has the lowest.
+
+# Canonical Component Analysis
+
+Next performing CCA on log GDP and life expectancy. First looking at the eta and psi coefficients,
+
+```{r, echo=FALSE, message=FALSE}
+library(CCA)
+cca <- cc(gdp_log[,2:13], lifeExp[,2:13])
+continent <- un[,1]
+```
+
+#### Eta 
+```{r, echo=FALSE}
+cca$xcoef[,1]
+```
+
+We see here that for eta there are large negative coefficients in the years 1957, 1987 and 1997.
+
+#### Psi
+```{r, echo=FALSE}
+cca$ycoef[,1]
+```
+
+For psi the majority of the coefficients are negative.
+
+```{r, echo=FALSE, message=FALSE, fig.align='center'}
+
+eta <- cca$scores$xscores[,1]
+psi <- cca$scores$yscores[,1]
+cca.out <- data.frame(continent = gdp_log$continent, eta=eta, psi=psi)
+ggplot(cca.out, aes(x=eta, y=psi, 
+                    label=rownames(cca.out), 
+                    col=continent)) + geom_text(size=3) +
+  labs(y='Psi', x='Eta', 
+       title = "First canonical component analysis on log GDP and Life expectancy ")
+```
+
+This plot shows us that there is a very strong positive correlation between log GDP and life expectancy. We see that the European and Oceanic countries have large negative eta and psi values indicating that they have large GDP contributions in the years 1957, 1987 and 1997 and that they had high life expectancy throughout. However African countries have lower GDPs and life expectancy.
+
+```{r, echo=FALSE, fig.align='center'}
+cca1 <- cc(gdp[,2:13], lifeExp[,2:13])
+eta1 <- cca1$scores$xscores[,1]
+psi1 <- cca1$scores$yscores[,1]
+cca1.out <- data.frame(continent=continent, eta1=eta1, psi1=psi1)
+ggplot(cca1.out, aes(x=eta1, y=psi1, label=rownames(cca1.out),
+                     col=continent)) + geom_text(size=3) +
+  labs(y="Psi", x="Eta",
+       title = "First Canonical component analysis on GDP and Life expectancy")
+```
+
+Without applying the log transformation we see that there is a large cluster of countries in the top right corner of the plot, under this there is a positive correlation between GDP and life expectancy however it is weaker than when using log GDP. The plot suggests that a lot of Asian countries have similar relationships between GDP and life expectancy than African countries do but we see that the log transformation spreads this information out and differentiates the continents more. This aggressive clustering is most likely caused by the skewness in the GDP data. 
+
+# Multi Dimensional Scaling
+
+```{r, echo=FALSE, fig.align='center'}
+
+UN.transformed <- cbind(log(un[,3:14]), un[,15:26], log(un[,27:38]))
+
+mds <- cmdscale(dist(UN.transformed)) %>% as.data.frame()
+mds <- cbind(un[,1], mds)
+colnames(mds) <- c("continent", "coord1", "coord2")
+rownames(mds) <- un[,2]
+
+ggplot(mds, aes(x=coord1, y=coord2, label=rownames(mds), col=continent)) + geom_text(size=3) +
+  labs(y="Second coordinate", x="First coordinate", 
+       title = "Multi Dimensional Scaling")
+```
+
+The MDS plot shows us a nice representation of similarities between countries, we see a cluster of European, Oceanic and some American countries on the right. This indicates that they have similar development levels, however on the left we see the African countries grouped together in a less dense cluster. This suggests that African countries have generally lower development levels as a whole but there is more variance in these levels, for example Libya is closer to in development to Saudi Arabia than Rwanda is. We see a distinctive difference in European and 1st world countries to African countries again and there is a bridge of Asian and American countries in between.
+
+These results are very similar to what our principal and canonical component analysis found that European countries are more developed than African ones.
+
+# Linear Discriminant Analysis
+
+Now we will perform linear discriminant analysis to predict continent based on GDP, life expectancy and population.
+
+```{r, echo=FALSE, message=FALSE}
+library(MASS)
+
+un_lda <- subset(un, select = -c(country))
+un.lda <- lda(continent ~ ., data=un_lda)
+
+set.seed(123)
+test.ind <- sample(141, size=50)
+
+un.test <- un_lda[test.ind,]
+un.train <- un_lda[-test.ind,]
+
+un.lda1 <- lda(continent ~. , data=un.train)
+un.pred <- predict(un.lda1, un.test)
+```
+
+```{r, echo=FALSE}
+lda.acc <- sum(un.pred$class == un.test$continent)/dim(un.test)[1] * 100
+paste("Predictive accuracy is ", lda.acc, "%", sep="")
+```
+
+The predictive accuracy of the test set is quite weak at 50%.
+
+```{r, echo=FALSE}
+table(un.test$continent, un.pred$class)
+```
+
+The table shows us that 6 African countries misclassified as Asian; American countries are misclassified more than they are classified correctly often predicting them as Asian countries; similarly Asian countries are misclassified as African, American and European; European countries on the whole are classified correctly and the Oceanic countries are classified completely correctly.
+
+# Clustering
+
+### GDP clustering
+
+```{r, echo=FALSE, message=FALSE}
+gdp1_log <- un %>% dplyr::select(starts_with("gdpPercap")) %>% mutate_all(log)
+rownames(gdp1_log) <- un[,2]
+colnames(gdp1_log) <- years
+```
+
+First we will take a look at K-means clustering, we must first assess the optimal number of clusters. I will be using log GDP data here instead of raw GDP because it reduces the skewness.
+
+```{r, echo=FALSE, fig.align='center'}
+library(factoextra)
+fviz_nbclust(gdp1_log, kmeans, method = "wss", linecolor = "red")
+```
+
+Analysing GDP using the elbow test we can see that there is a significant difference from 2-3 but after it levels off, so we will continue with 3 clusters.
+
+```{r, echo=FALSE, message=FALSE, fig.align='center', out.width='80%'}
+# GDP cluster
+set.seed(123)
+gdp_log.k <- kmeans(gdp1_log, centers=3, nstart=25)
+fviz_cluster(gdp_log.k, data=gdp1_log, geom='text', 
+             labelsize = 10)
+```
+
+K-means clustering splits the GDP data into 3 distinctive clusters with the 3rd clustering primarily containing European countries, the second cluster is mainly Asian countries and the 1st is African countries.
+
+Comparing this to hierarchical methods,
+
+```{r, echo=FALSE, fig.show='asis', out.width='50%', out.height='75%'}
+dist_gdp <- dist(gdp1_log, method="euclidian")
+
+clust.sl <- hclust(dist_gdp, method="single")
+clust.cplt <- hclust(dist_gdp, method="complete")
+clust.avg <- hclust(dist_gdp, method="average")
+clust.ward <- hclust(dist_gdp, method="ward.D2")
+
+
+
+plot(clust.sl) # useless 
+plot(clust.cplt) # find 3 
+plot(clust.avg) # finds 3   
+plot(clust.ward) # finds 3 
+```
+
+The cluster dendrograms show that complete linkage, group average and ward's method all find 3 clusters which agrees with the kmeans clustering. The natural interpretation of these clusters is that they are grouped by their level of economic development, we see the commonly known 1st world countries clustered in blue and the less developed countries in green. We could consider the red cluster as newly emerging countries that are bridging the gap from 3rd world status to 1st world.
+
+### Life expectancy clustering 
+
+```{r, echo=FALSE, message=FALSE}
+lifeExp_numeric <- lifeExp %>%
+  select_if(is.numeric)
+lifeExp.scaled <- scale(lifeExp_numeric)
+
+```
+
+```{r, echo=FALSE, fig.align='center'}
+fviz_nbclust(lifeExp.scaled, kmeans, method = "wss", linecolor = "red")
+```
+
+There is a significant change from 2-3 and after that each change in number of clusters is approximately the same, so continuing with 3 clusters.
+
+```{r, echo=FALSE, message=FALSE, fig.align='center'}
+lifexp.k <- kmeans(lifeExp.scaled, centers=3, nstart=25)
+fviz_cluster(lifexp.k, data=lifeExp.scaled, geom="text", 
+             labelsize = 10,
+             main="Life expectancy cluster plot")
+```
+
+Kmeans clustering finds 3 distinct clusters with the 1st cluster mainly containing African countries, the second containing the upper bound of African countries and Asian countries, and the 3rd containing the more commonly known 1st world countries.
+
+We now compare this to hierarchical clustering methods,
+
+```{r, echo=FALSE, fig.show='asis', out.width='50%', out.height='75%'}
+dist_life <- dist(lifeExp.scaled, method="euclidian")
+
+clust.sl1 <- hclust(dist_life, method="single")
+clust.cplt1 <- hclust(dist_life, method="complete")
+clust.avg1 <- hclust(dist_life, method="average")
+clust.ward1 <- hclust(dist_life, method="ward.D2")
+
+plot(clust.sl1) 
+plot(clust.cplt1) # finds 3 
+plot(clust.avg1) # finds 3   
+plot(clust.ward1) # finds 3 
+
+```
+
+The hierarchical method are good at finding 3 clusters, complete linkage, group average and ward's method again find 3 clusters however single linkage is not able to find a nice solution. I would interpret these clusters as groups of countries that have similar levels of development contributing to life expectancy such as health care, environment, access to food and education. Cluster 1 is primarily made up of African countries who have the lowest life expectancy on average (found in EDA) whereas cluster 3 contains a mix of European, American and Asian countries.
+
+I decided to exclude model based clustering from this analysis because there are 12 different years of data the graph would be very difficult to read.
+
+# Linear Regression
+
+To fit a linear regression model for life expectancy in 2007 we need to first consider the effect of using raw GDP data or using log GDP data, from our EDA we know that the GDP data is positively skewed so I am inclined to use log GDP. Let's take a look, 
+
+### OLS Regression
+
+```{r, echo=FALSE}
+
+linear <- un %>% dplyr::select(lifeExp_2007, starts_with("gdpPercap")) %>% mutate_at(vars(-1), log)
+rownames(linear) <- un[,2]
+colnames(linear)[2:13] <- c("log_gdp_1952", "log_gdp_1957", "log_gdp_1962",
+                        "log_gdp_1967", "log_gdp_1972", "log_gdp_1977", 
+                        "log_gdp_1982", "log_gdp_1987", "log_gdp_1992",
+                        "log_gdp_1997", "log_gdp_2002", "log_gdp_2007")
+
+
+linear_no_log <- un %>% dplyr::select(lifeExp_2007, starts_with("gdpPercap"))
+rownames(linear_no_log) <- un[,2]
+colnames(linear_no_log)[2:13] <- c("gdp_1952", "gdp_1957", "gdp_1962", "gdp_1967", 
+                            "gdp_1972", "gdp_1977", "gdp_1982", "gdp_1987", 
+                            "gdp_1992", "gdp_1997", "gdp_2002", "gdp_2007")
+
+```
+
+```{r}
+lm.ols <- lm(lifeExp_2007 ~ ., data=linear)
+summary(lm.ols)$r.squared # log GDP
+
+lm.ols1 <- lm(lifeExp_2007~., data=linear_no_log)
+summary(lm.ols1)$r.squared # raw GDP 
+```
+
+We see that the model using log GDP has a significantly higher R squared by 0.191 which suggests that log GDP leads to a more accurate linear model. 
+
+```{r}
+mean(lm.ols$residuals^2) # log GDP
+mean(lm.ols1$residuals^2) # raw GDP
+```
+
+Log GDP data yields a lower MSE and is suggests that it is more accurate. 
+
+### Principal component regression
+
+Since we are using 12 different years of GDP data we will have 12 components, so first we need to find the optimal number of components to use for our PCR, 
+
+```{r, echo=FALSE, fig.show ='asis', out.width ='50%', message=FALSE, out.height='75%'}
+library(pls)
+lm.pcr <- pcr(lifeExp_2007 ~ ., ncomp=12, scale=TRUE, data=linear, 
+              validation='CV')
+
+lm.pcr1 <- pcr(lifeExp_2007 ~., ncomp=12, scale=T, data=linear_no_log, 
+               validation="CV")
+
+
+plot(RMSEP(lm.pcr), legendpos = "topright", main = "Response: LifeExp 2007 \n predictors: log GDP")
+plot(RMSEP(lm.pcr1), legendpos = "topright", main = "Response: LifeExp 2007 \n predictors: GDP")
+
+```
+
+Raw GDP suggests that using 2 components yields the lowest cross validation error whereas log GDP data suggests 3 components, after this as the number of components increases the error also increases. 
+
+```{r, echo=FALSE, message=FALSE}
+# log GDP 
+pca <- prcomp(linear[,2:13], scale=TRUE)
+lm.pcr2 <- lm(lifeExp_2007 ~ pca$x[,1:3], data=linear)
+# raw gdp 
+pca1 <- prcomp(linear_no_log[,2:13], scale=TRUE)
+lm.pcr3 <- lm(lifeExp_2007 ~ pca1$x[,1:2], data=linear_no_log)
+```
+
+```{r, echo=TRUE}
+summary(lm.pcr2)$r.squared # log GDP 
+summary(lm.pcr3)$r.squared # raw GDP 
+```
+
+The R squared when using log GDP as the predictor is again significantly higher than when using the raw GDP data. 
+
+```{r, echo=TRUE}
+mean(lm.pcr2$residuals^2) # log GDP
+mean(lm.pcr3$residuals^2) # raw GDP 
+```
+
+Investigating the mean square error shows us that using log GDP has a lower error and thus is more accurate than using raw GDP data.
+
+### Ridge regression 
+
+```{r, message=FALSE, echo=FALSE, fig.align='center'}
+library(glmnet)
+
+X <- as.matrix(linear[,2:13])
+y <- linear$lifeExp_2007
+lambdas <- 10^seq(3, -4, by = -.1)
+
+lm.ridge <- glmnet(X, y, alpha=0, lambda=lambdas)
+plot(lm.ridge, xvar='lambda', 
+     main="Ridge Path Life Exp 2007 ~ log GDP \n ")
+```
+
+For log GDP data we see that the ridge path is very noisy for negative log lambda values but as it increases it becomes more stable to tends to 0. Around log lambda = 0 there is a funnel of values which look symmetrical. 
+
+```{r, message=FALSE, echo=FALSE, fig.align='center'}
+X1 <- as.matrix(linear_no_log[,2:13])
+y1 <- linear_no_log$lifeExp_2007
+lambdas <- 10^seq(3, -4, by = -.1)
+
+lm.ridge1 <- glmnet(X1, y1, alpha=0, lambda=lambdas)
+plot(lm.ridge1, xvar='lambda', 
+     main="Ridge Path Life Exp 2007 ~ GDP \n")
+```
+
+The model using raw GDP data tends to 0 a lot faster with coefficients joining at 0 at different lambda values. Now taking a look at the cross validation plots to determine which model has the lowerest error, 
+
+```{r, echo=FALSE, fig.align='center'}
+set.seed(123)
+cv_fit <- cv.glmnet(X, y, alpha=0, lambda=lambdas)
+plot(cv_fit, main="Cross Validation Plot (log GDP) \n")
+
+lambda_min <- cv_fit$lambda.min
+MSE_min <- min(cv_fit$cvm)
+cat("lambda =", lambda_min, " ")
+cat("MSE =", MSE_min, " ")
+```
+
+This plot shows us that the value of lambda that yields the lowest MSE is lambda = 1 and the mean square error is 51.176. For the smallest lambda values the MSE is around 60 and as it starts to get closer to 1 it dips however after this it rapidly increases in inaccuracy.
+
+```{r, echo=FALSE, fig.align='center'}
+set.seed(123)
+cv_fit1 <- cv.glmnet(X1, y1, alpha=0, lambda=lambdas)
+plot(cv_fit1, main="Cross Validation Plot (GDP)\n")
+
+lambda_min1 <- cv_fit1$lambda.min  
+MSE_min1 <- min(cv_fit1$cvm) 
+cat("lambda =", lambda_min1, " ")
+cat("MSE =", MSE_min1, " ")
+
+```
+
+The model using GDP data has a slightly higher lambda value giving minimum MSE of 1.99 however the error here is significantly larger at 79.9 and tells us that the raw GDP data is less accurate. 
+
+## Comparing Regression methods
+
+Now that we have formed all the models we need to assess which model is the best, below are tables comparing MSE and R squared values for models using raw and log GDP data respectively,
+
+##### Raw GDP data
+```{r, echo=FALSE}
+# ridge 
+
+######
+# log
+#####
+ridge_cv_error <- min(cv_fit$cvm) 
+
+best_lam <- cv_fit$lambda.min
+best.ridge <- glmnet(X,y, alpha=0, lambda = best_lam)
+# coef(best.ridge)
+
+y_pred <- predict(best.ridge, newx = X)
+sst <- sum((y-mean(y))^2)
+sse <- sum((y_pred-y)^2)
+
+rsq.ridge_log <- 1- sse/sst
+
+######
+# raw
+#####
+
+
+ridge_cv_error1 <- min(cv_fit1$cvm) 
+
+best_lam1 <- cv_fit1$lambda.min
+best.ridge1 <- glmnet(X1,y1, alpha=0, lambda=best_lam1)
+#coef(best.ridge1)
+
+y_pred1 <- predict(best.ridge1, newx = X1)
+sst1 <- sum((y1-mean(y1))^2)
+sse1 <- sum((y_pred1-y1)^2)
+
+rsq.ridge_raw <- 1- sse1/sst1
+
+# For Raw Data
+raw_data <- matrix(
+  c(
+    mean(lm.ols1$residuals^2), # MSE OLS (raw)
+    summary(lm.ols1)$r.squared, # R^2 OLS (raw)
+    mean(lm.pcr3$residuals^2), # MSE PCR (raw)
+    summary(lm.pcr3)$r.squared, # R^2 PCR (raw)
+    min(cv_fit1$cvm),           # MSE Ridge (raw)
+    rsq.ridge_raw               # R^2 Ridge (raw)
+  ),
+  nrow = 2,
+  byrow = FALSE,
+  dimnames = list(c("MSE", "R squared"), c("OLS", "PCR", "Ridge"))
+)
+
+# Print table for raw data
+as.table(raw_data)
+``` 
+
+##### Log GDP data 
+
+```{r, echo=FALSE}
+# For Log Data
+log_data <- matrix(
+  c(
+    mean(lm.ols$residuals^2),   # MSE OLS (log)
+    summary(lm.ols)$r.squared,  # R^2 OLS (log)
+    mean(lm.pcr2$residuals^2),  # MSE PCR (log)
+    summary(lm.pcr2)$r.squared, # R^2 PCR (log)
+    min(cv_fit$cvm),            # MSE Ridge (log)
+    rsq.ridge_log               # R^2 Ridge (log)
+  ),
+  nrow = 2,
+  byrow = FALSE,
+  dimnames = list(c("MSE", "R squared"), c("OLS", "PCR", "Ridge"))
+)
+
+# Print table for log data
+as.table(log_data)
+```
+
+
+We can see that across all the models raw GDP data performs worse, in each model it has a significantly larger mean squared error and the R squared is lower. This leaves us with the models using log GDP data, PCR and Ridge regression models have similar R squareds with ridge giving slightly higher however the MSE for PCR is much better. 
+
+The best model for predicting 2007 life expectancy data is OLS regression model since it has the smallest MSE and highest R squared. Here are the coefficients for the model below, 
+
+```{r}
+coef(lm.ols)
+```
+
+Finally here is a scatter plot of our countries with our regression line layered over.
+
+```{r, echo=FALSE, fig.align='center', message=FALSE}
+
+linear$predicted_lifeExp <- predict(lm.ols)
+linear$continent <- un[,1]
+# Plot using ggplot2
+ggplot(data = linear, aes(x = lifeExp_2007, y = predicted_lifeExp)) +
+  geom_text(aes(label=rownames(linear), color=continent), size=3) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linewidth=0.5) +
+  labs(x = "Actual Life Expectancy in 2007", y = "Predicted Life Expectancy", title = "Scatter Plot for OLS Regression Model")
+```
+
+
+
+
+
+
+
+
+
+
+
